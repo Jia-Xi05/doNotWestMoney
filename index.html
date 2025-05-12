@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MLB 模擬下注系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans p-6">
+  <!-- 頁首 -->
+  <header class="mb-8 text-center">
+    <h1 class="text-3xl font-bold">MLB 模擬下注（支援串關 & 紀錄儲存）</h1>
+  </header>
+
+  <!-- 主區塊：本金、下注、結果 -->
+  <div class="max-w-4xl mx-auto grid grid-cols-3 gap-8">
+    <!-- 左側 -->
+    <div class="col-span-2 space-y-6">
+      <!-- 本金設定 -->
+      <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
+        <label class="block mb-2">本金（Bankroll）</label>
+        <input id="bankrollInput" type="number" min="0" step="0.01" class="w-full p-2 rounded-lg bg-gray-700 border border-gray-600" placeholder="輸入本金">
+        <button id="setBankrollBtn" class="mt-4 w-full py-2 rounded-xl text-white bg-yellow-500 hover:bg-yellow-600 transition">存入本金</button>
+      </div>
+      <!-- 下注表單 -->
+      <div id="betForm" class="bg-gray-800 p-6 rounded-2xl shadow-lg space-y-4 opacity-50 pointer-events-none">
+        <div>
+          <label>下注隊伍</label>
+          <select id="teamSelect" class="w-full p-2 rounded-lg bg-gray-700 border border-gray-600"></select>
+        </div>
+        <div>
+          <label>賠率（小數）</label>
+          <input id="oddsInput" type="number" min="1" step="0.01" class="w-full p-2 rounded-lg bg-gray-700 border border-gray-600" placeholder="如 1.20、2.50">
+        </div>
+        <div class="flex space-x-2">
+          <button id="addParlayBtn" class="flex-1 py-2 rounded-xl text-white bg-blue-500 hover:bg-blue-600 transition">加入串關</button>
+          <button id="clearParlayBtn" class="flex-1 py-2 rounded-xl text-white bg-red-500 hover:bg-red-600 transition">清除串關</button>
+        </div>
+        <div>
+          <label>串關明細</label>
+          <ul id="parlayList" class="list-disc list-inside max-h-32 overflow-auto text-sm"></ul>
+          <div class="mt-2">總賠率：<span id="totalOdds">0.00</span></div>
+        </div>
+        <div>
+          <label>下注金額</label>
+          <input id="betAmountInput" type="number" class="w-full p-2 rounded-lg bg-gray-700 border border-gray-600" placeholder="不得超過本金">
+        </div>
+        <button id="placeBetBtn" class="mt-4 w-full py-2 rounded-xl text-white bg-yellow-500 hover:bg-yellow-600 transition">提交下注</button>
+      </div>
+    </div>
+    <!-- 右側：結果顯示 -->
+    <div class="bg-gray-800 p-6 rounded-2xl shadow-lg flex flex-col items-center justify-center">
+      <div id="resultStatus" class="text-lg mb-4">尚未開始</div>
+      <div>剩餘本金：<span id="bankrollDisplay">0.00</span></div>
+    </div>
+  </div>
+
+  <!-- 分頁導航 -->
+  <div class="max-w-4xl mx-auto mt-8">
+    <nav class="flex space-x-4 border-b border-gray-700">
+      <button id="tabPending" class="py-2 px-4 -mb-px font-medium border-b-2 border-yellow-500">紀錄</button>
+      <button id="tabHistory" class="py-2 px-4 font-medium text-gray-400 hover:text-white">歷史紀錄</button>
+    </nav>
+    <!-- 未操作串關列表 -->
+    <div id="pendingSection" class="bg-gray-800 p-6 rounded-2xl shadow-lg mt-4">
+      <h2 class="text-xl mb-4">待操作串關</h2>
+      <ul id="pendingList" class="list-decimal list-inside space-y-4 text-sm"></ul>
+    </div>
+    <!-- 已操作歷史紀錄 -->
+    <div id="historySection" class="hidden bg-gray-800 p-6 rounded-2xl shadow-lg mt-4">
+      <h2 class="text-xl mb-4">歷史紀錄</h2>
+      <ul id="historyList" class="list-decimal list-inside space-y-4 text-sm"></ul>
+    </div>
+  </div>
+
+  <script>
+    // 本地化隊伍
+    const teams = {"Arizona Diamondbacks":"亞利桑那響尾蛇","Oakland Athletics":"運動家","Atlanta Braves":"亞特蘭大勇士","Baltimore Orioles":"巴爾的摩金鶯","Boston Red Sox":"波士頓紅襪","Chicago White Sox":"芝加哥白襪","Chicago Cubs":"芝加哥小熊","Cincinnati Reds":"辛辛那提紅人","Cleveland Guardians":"克里夫蘭守護者","Colorado Rockies":"科羅拉多落磯","Detroit Tigers":"底特律老虎","Houston Astros":"休士頓太空人","Kansas City Royals":"堪薩斯城皇家","Los Angeles Angels":"洛杉磯天使","Los Angeles Dodgers":"洛杉磯道奇","Miami Marlins":"邁阿密馬林魚","Milwaukee Brewers":"密爾瓦基釀酒人","Minnesota Twins":"明尼蘇達雙城","New York Yankees":"紐約洋基","New York Mets":"紐約大都會","Philadelphia Phillies":"費城費城人","Pittsburgh Pirates":"匹茲堡海盜","San Diego Padres":"聖地牙哥教士","San Francisco Giants":"舊金山巨人","Seattle Mariners":"西雅圖水手","St. Louis Cardinals":"聖路易紅雀","Tampa Bay Rays":"坦帕灣光芒","Texas Rangers":"德州遊騎兵","Toronto Blue Jays":"多倫多藍鳥","Washington Nationals":"華盛頓國民"};
+    // 從 localStorage 讀取或預設
+    let bankroll = parseFloat(localStorage.getItem('bankroll')) || 0;
+    let parlayBets = JSON.parse(localStorage.getItem('pendingBets')) || [];
+    let historyData = JSON.parse(localStorage.getItem('historyBets')) || [];
+    let historyCount = historyData.length;
+
+    // DOM
+    const bankrollInput = document.getElementById('bankrollInput');
+    const setBankrollBtn = document.getElementById('setBankrollBtn');
+    const bankrollDisplay = document.getElementById('bankrollDisplay');
+    const betForm = document.getElementById('betForm');
+    const teamSelect = document.getElementById('teamSelect');
+    const oddsInput = document.getElementById('oddsInput');
+    const addParlayBtn = document.getElementById('addParlayBtn');
+    const clearParlayBtn = document.getElementById('clearParlayBtn');
+    const parlayList = document.getElementById('parlayList');
+    const totalOddsDisplay = document.getElementById('totalOdds');
+    const betAmountInput = document.getElementById('betAmountInput');
+    const placeBetBtn = document.getElementById('placeBetBtn');
+    const resultStatus = document.getElementById('resultStatus');
+    const tabPending = document.getElementById('tabPending');
+    const tabHistory = document.getElementById('tabHistory');
+    const pendingSection = document.getElementById('pendingSection');
+    const historySection = document.getElementById('historySection');
+    const pendingList = document.getElementById('pendingList');
+    const historyList = document.getElementById('historyList');
+
+    // 儲存所有狀態
+    function saveAll() {
+      localStorage.setItem('bankroll', bankroll);
+      localStorage.setItem('pendingBets', JSON.stringify(parlayBets));
+      localStorage.setItem('historyBets', JSON.stringify(historyData));
+    }
+
+    // 初始化顯示
+    function init() {
+      bankrollDisplay.textContent = bankroll.toFixed(2);
+      // 表單啟用
+      if (bankroll > 0) betForm.classList.remove('opacity-50','pointer-events-none');
+      // 隊伍下拉
+      Object.keys(teams).forEach(key => {
+        const opt = document.createElement('option'); opt.value = key; opt.textContent = teams[key]; teamSelect.append(opt);
+      });
+      // 重建待操作與歷史
+      parlayBets.forEach(b=>addPendingEntry(b));
+      historyData.forEach(h=>addHistoryEntry(h));
+      updateParlayUI();
+    }
+
+    // 更新串關 UI
+    function updateParlayUI() {
+      parlayList.innerHTML = '';
+      let totalOdds = 1;
+      parlayBets.forEach((b,i)=>{
+        const li=document.createElement('li'); li.textContent=`${i+1}. ${teams[b.team]} @ ${b.odds.toFixed(2)}`; parlayList.append(li);
+        totalOdds*=b.odds;
+      });
+      totalOddsDisplay.textContent = totalOdds.toFixed(2);
+    }
+
+    // 新增 Pending 條目
+    function addPendingEntry({team,odds,betAmt}) {
+      const entryId = ++historyCount;
+      const li=document.createElement('li'); li.id=`entry-${entryId}`;
+      const details=`${teams[team]}@${odds.toFixed(2)}`;
+      const totalOdds=parlayBets.reduce((acc,b)=>acc*b.odds,1);
+      li.innerHTML=`<div>【${entryId}】${details}｜總賠率${totalOdds.toFixed(2)}｜下注${betAmt.toFixed(2)}</div>
+        <div class="mt-2 space-x-2">
+          <button class="passBtn py-1 px-3 rounded-md bg-green-600 hover:bg-green-700">過關</button>
+          <button class="failBtn py-1 px-3 rounded-md bg-red-600 hover:bg-red-700">失敗</button>
+        </div>`;
+      pendingList.append(li);
+      bindResultButtons(li,team,odds,betAmt,entryId);
+    }
+
+    // 新增 History 條目
+    function addHistoryEntry({team,odds,betAmt,passed,id}) {
+      const li=document.createElement('li'); li.id=`entry-${id}`;
+      const status=passed?`🎉 過關`:`💔 失敗`;
+      li.textContent=`【${id}】${teams[team]}@${odds.toFixed(2)}｜下注${betAmt.toFixed(2)}｜${status}`;
+      historyList.append(li);
+    }
+
+    // 綁定結果按鈕
+    function bindResultButtons(li,team,odds,betAmt,id) {
+      const totalOdds=parlayBets.reduce((acc,b)=>acc*b.odds,1);
+      li.querySelector('.passBtn').onclick=()=>{
+        bankroll+=betAmt*(totalOdds-1);
+        historyData.push({team,odds,betAmt,passed:true,id});
+        resultStatus.textContent=`🎉 第${id}筆 過關，淨利 ${(betAmt*(totalOdds-1)).toFixed(2)}`;
+        finalizeEntry(li);
+        saveAll();
+      };
+      li.querySelector('.failBtn').onclick=()=>{
+        bankroll-=betAmt;
+        historyData.push({team,odds,betAmt,passed:false,id});
+        resultStatus.textContent=`💔 第${id}筆 失敗，損失 ${betAmt.toFixed(2)}`;
+        finalizeEntry(li);
+        saveAll();
+      };
+    }
+
+    // 移除按鈕並移至 History
+    function finalizeEntry(li) {
+      li.querySelector('.passBtn')?.remove(); li.querySelector('.failBtn')?.remove();
+      bankrollDisplay.textContent=bankroll.toFixed(2);
+      historyList.append(li);
+      // 同步 pendingBets
+      parlayBets=[]; updateParlayUI(); saveAll();
+    }
+
+    // 事件綁定
+    setBankrollBtn.onclick=()=>{ bankroll=parseFloat(bankrollInput.value)||0; bankrollDisplay.textContent=bankroll.toFixed(2); saveAll(); betForm.classList.remove('opacity-50','pointer-events-none'); };
+    addParlayBtn.onclick=()=>{ const team=teamSelect.value,odds=parseFloat(oddsInput.value); if(team&&odds){ parlayBets.push({team,odds,betAmt:0}); updateParlayUI(); saveAll(); }};
+    clearParlayBtn.onclick=()=>{ parlayBets=[]; updateParlayUI(); saveAll(); };
+    placeBetBtn.onclick=()=>{ const betAmt=parseFloat(betAmountInput.value)||0; if(betAmt>bankroll||parlayBets.length===0){ alert('請確認本金與串關');return;} // 設定 betAmt
+      parlayBets.forEach(b=>b.betAmt=betAmt);
+      addPendingEntry(parlayBets[parlayBets.length-1]);
+      saveAll();
+    };
+    tabPending.onclick=()=>{ pendingSection.classList.remove('hidden');historySection.classList.add('hidden'); tabPending.classList.add('border-yellow-500'); tabHistory.classList.remove('border-yellow-500'); };
+    tabHistory.onclick=()=>{ pendingSection.classList.add('hidden');historySection.classList.remove('hidden'); tabHistory.classList.add('border-yellow-500'); tabPending.classList.remove('border-yellow-500'); };
+
+    // 啟動
+    init();
+  </script>
+</body>
+</html>
